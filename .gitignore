@@ -1,0 +1,45 @@
+# ============================================
+# .gitignore — Tells git which files to ignore
+# ============================================
+# Files listed here will NOT be tracked by git.
+# This keeps the repository clean and avoids
+# uploading large or sensitive files.
+
+# --- Python ---
+# __pycache__ folders contain auto-generated compiled Python files.
+# They are recreated automatically when you run your code.
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# --- Virtual Environment ---
+# The venv folder contains all installed packages.
+# Each person creates their own using: python -m venv venv
+venv/
+env/
+.venv/
+
+# --- Dataset ---
+# The PTB-XL dataset is ~1.7 GB. It's too large for GitHub.
+# The code downloads it automatically when you run main.py.
+data/
+
+# --- Results ---
+# Generated plots and reports. These are recreated each time
+# you run main.py, so they don't need to be in git.
+results/
+
+# --- IDE / Editor files ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS files ---
+Thumbs.db
+.DS_Store

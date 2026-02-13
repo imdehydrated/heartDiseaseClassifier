@@ -1,0 +1,19 @@
+# ============================================
+# requirements.txt — Python package dependencies
+# ============================================
+# Install all of these with:   pip install -r requirements.txt
+#
+# What each package does:
+#   wfdb         — Reads ECG data files in the WFDB (WaveForm DataBase) format
+#   pandas       — Loads and manipulates CSV files and tabular data
+#   numpy        — Fast numerical operations on arrays (the backbone of scientific Python)
+#   scikit-learn — Machine learning library (SVM, Random Forest, K-Means, metrics)
+#   scipy        — Scientific computing (signal processing, statistics, FFT)
+#   matplotlib   — Creates plots and charts
+
+wfdb>=4.1.0
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+scipy>=1.11.0
+matplotlib>=3.7.0
