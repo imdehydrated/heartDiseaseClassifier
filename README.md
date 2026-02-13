@@ -6,7 +6,7 @@ Classify heart conditions from ECG (electrocardiogram) signals using machine lea
 
 ```powershell
 # 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/heartDiseaseClassifier.git
+git clone https://github.com/imdehydrated/heartDiseaseClassifier.git
 cd heartDiseaseClassifier
 
 # 2. Create and activate a virtual environment
