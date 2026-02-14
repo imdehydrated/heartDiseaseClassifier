@@ -30,9 +30,13 @@ env/
 data/
 
 # --- Results ---
-# Generated plots and reports. These are recreated each time
-# you run main.py, so they don't need to be in git.
+# Generated plots and reports.
 results/
+
+# --- Personal notes ---
+# NOTES.md contains detailed technical explanations for personal reference.
+# It's not part of the project deliverable.
+NOTES.md
 
 # --- IDE / Editor files ---
 .vscode/
