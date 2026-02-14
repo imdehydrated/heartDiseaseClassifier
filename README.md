@@ -5,7 +5,7 @@ Classify heart conditions from ECG (electrocardiogram) signals using machine lea
 ## What This Project Does
 
 1. Downloads 21,799 real clinical ECG recordings from the [PTB-XL dataset](https://physionet.org/content/ptb-xl/1.0.3/)
-2. Extracts 120 numerical features from each recording using signal processing (scipy)
+2. Extracts 309 numerical features from each recording using signal processing (scipy, PyWavelets)
 3. Trains three machine learning models to classify ECGs as **Normal** or **Abnormal**
 4. Compares the models and generates plots showing the results
 
@@ -48,25 +48,28 @@ heartDiseaseClassifier/
 
 ### The Pipeline
 
-When you run `python main.py`, five steps happen in order:
+When you run `python main.py`, six steps happen in order:
 
 | Step | What Happens | Module |
 |------|-------------|--------|
 | 1 | Download and load 21,799 ECG recordings | `data_loader.py` |
-| 2 | Extract 120 features per recording (10 per lead x 12 leads) | `feature_extraction.py` |
-| 3 | Scale features to a standard range | `classifiers.py` |
-| 4 | Train SVM, Random Forest, and K-Means; evaluate on test set | `classifiers.py` |
-| 5 | Generate comparison plots and text reports | `visualization.py` |
+| 2 | Extract 309 features per recording (signal, HRV, morphological, wavelet, frequency band) | `feature_extraction.py` |
+| 3 | Select best features using RF importance + mutual information (removes redundant/noisy ones) | `feature_extraction.py` |
+| 4 | Scale features to a standard range | `classifiers.py` |
+| 5 | Train SVM, Random Forest, and K-Means; evaluate on test set | `classifiers.py` |
+| 6 | Generate comparison plots and text reports | `visualization.py` |
 
 ### The Three Classifiers
 
 | Classifier | Type | How It Works |
 |-----------|------|-------------|
-| **SVM** | Supervised | Finds the best boundary that separates Normal from Abnormal ECGs |
-| **Random Forest** | Supervised | 100 decision trees vote on each prediction |
-| **K-Means** | Unsupervised | Groups ECGs by similarity without using labels, then maps groups to labels |
+| **SVM** | Supervised | Finds the best curved boundary between Normal and Abnormal (with PCA + GridSearchCV tuning) |
+| **Random Forest** | Supervised | 500 decision trees vote on each prediction (with balanced class weights) |
+| **K-Means** | Unsupervised | Groups ECGs into 5 clusters by similarity (with PCA to 20 dimensions), then maps clusters to labels |
 
-### Features Extracted (per lead)
+### Features Extracted (309 total)
+
+**A. Per-Lead Signal Features** (10 x 12 leads = 120)
 
 | Feature | What It Measures |
 |---------|-----------------|
@@ -79,6 +82,43 @@ When you run `python main.py`, five steps happen in order:
 | Kurtosis | Sharpness of peaks |
 | Dominant frequency | Strongest rhythm (in Hz) |
 | Spectral energy | Total power across frequencies |
+
+**B. Heart Rate Variability (HRV) Features** (9 from Lead II)
+
+| Feature | What It Measures |
+|---------|-----------------|
+| Mean RR / SDNN | Average and variability of time between beats |
+| RMSSD / pNN50 | Short-term beat-to-beat variability |
+| HR mean / HR std | Heart rate average and variability |
+| LF power / HF power | Sympathetic and parasympathetic nervous activity |
+| LF/HF ratio | Autonomic balance indicator |
+
+**C. Morphological Features** (6 x 12 leads = 72)
+
+| Feature | What It Measures |
+|---------|-----------------|
+| R-peak amplitude | Height of the R-wave |
+| QRS duration | Width of the main spike (ms) |
+| R/S ratio | R-peak height vs S-trough depth |
+| ST deviation | Voltage shift after QRS (heart attack indicator) |
+| T-wave amplitude | Height of the T-wave |
+| Beat shape std | Consistency of individual beats |
+
+**D. Wavelet Features** (6 x 12 leads = 72)
+
+| Feature | What It Measures |
+|---------|-----------------|
+| Energy d3 / d4 / approx | Signal power at QRS, T-wave, and baseline scales |
+| Entropy d3 / d4 | Complexity/disorder at each scale |
+| Detail ratio | High-frequency vs low-frequency energy balance |
+
+**E. Frequency Band Energy Features** (3 x 12 leads = 36)
+
+| Feature | What It Measures |
+|---------|-----------------|
+| Low band (0.5–5 Hz) | P-wave, T-wave, heart rate rhythm |
+| Mid band (5–15 Hz) | QRS complex energy |
+| High band (15–40 Hz) | Sharp transitions and fine details |
 
 ## Dataset
 
@@ -94,8 +134,10 @@ When you run `python main.py`, five steps happen in order:
 - `pandas` — CSV and tabular data
 - `numpy` — Numerical operations
 - `scikit-learn` — Machine learning models and metrics
-- `scipy` — Signal processing and statistics
+- `scipy` — Signal processing, statistics, and FFT
 - `matplotlib` — Charts and plots
+- `PyWavelets` — Wavelet decomposition for time-frequency features
+- `torch` — PyTorch deep learning framework (1D CNN model)
 
 ## References
 

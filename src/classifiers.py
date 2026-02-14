@@ -32,6 +32,8 @@ Why compare all three?
 
 import numpy as np
 from sklearn.svm import SVC
+from sklearn.model_selection import GridSearchCV
+from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
@@ -113,11 +115,15 @@ def train_svm(X_train, y_train, X_test, y_test):
     (not just a straight line). This is important because real data
     rarely separates perfectly with a straight line.
 
-    NOTE ON SPEED:
-    SVM gets very slow with large datasets (training time grows roughly
-    as the square of the number of samples). With 17,000+ samples,
-    training could take hours. So we limit training to 10,000 samples
-    to keep it under a few minutes.
+    IMPROVEMENTS OVER A BASIC SVM:
+    1. PCA: Reduces correlated features to fewer, independent dimensions.
+       This removes noise from distance calculations and speeds up training.
+    2. GridSearchCV: Tries multiple hyperparameter combinations and picks
+       the best one using 3-fold cross-validation on the training set.
+    3. class_weight='balanced': Adjusts for class imbalance so the model
+       doesn't just predict the majority class.
+    4. Training cap: Limits to 10,000 samples for speed (SVM training
+       time grows roughly as the square of the number of samples).
 
     Parameters
     ----------
@@ -133,32 +139,73 @@ def train_svm(X_train, y_train, X_test, y_test):
     """
     print("  Training SVM classifier...")
 
-    # Limit training data to 10,000 samples for speed
-    max_train_samples = len(X_train)
-    if len(X_train) > max_train_samples:
-        print(f"    Using {max_train_samples} of {len(X_train)} samples "
+    # --- Step 1: PCA dimensionality reduction ---
+    # Reduce features to the number of components that retain 95% of variance.
+    # This removes correlated features and speeds up SVM significantly.
+    pca = PCA(n_components=0.95, random_state=42)
+    X_train_pca = pca.fit_transform(X_train)
+    X_test_pca = pca.transform(X_test)
+    print(f"    PCA: {X_train.shape[1]} features -> {X_train_pca.shape[1]} components "
+          f"(95% variance retained)")
+
+    # --- Step 2: Limit training data for speed ---
+    # SVM training time grows as O(n^2), so 17,000 samples would be very slow.
+    max_train_samples = 10000
+    if len(X_train_pca) > max_train_samples:
+        print(f"    Using {max_train_samples} of {len(X_train_pca)} samples "
               f"(SVM is slow on large datasets).")
-        # RandomState(42) ensures we always pick the same random samples
         rng = np.random.RandomState(42)
-        indices = rng.choice(len(X_train), max_train_samples, replace=False)
-        X_train_sub = X_train[indices]
+        indices = rng.choice(len(X_train_pca), max_train_samples, replace=False)
+        X_train_sub = X_train_pca[indices]
         y_train_sub = y_train[indices]
     else:
-        X_train_sub = X_train
+        X_train_sub = X_train_pca
         y_train_sub = y_train
 
-    # Create and train the SVM model
-    # kernel='rbf': use a curved boundary (Radial Basis Function)
-    # C=1.0: balance between fitting training data and keeping margin wide
-    # random_state=42: makes results reproducible (same answer every run)
-    svm_model = SVC(kernel="rbf", C=1.0, random_state=42)
-    svm_model.fit(X_train_sub, y_train_sub)
+    # --- Step 3: GridSearchCV for hyperparameter tuning ---
+    # Instead of guessing C and gamma, try multiple combinations and pick
+    # the best one using cross-validation (splitting training data 3 ways).
+    #
+    # C: controls the trade-off between fitting training data perfectly
+    #    (high C) and keeping the margin wide (low C).
+    # gamma: controls how far each training point's influence reaches.
+    #    'scale' = 1/(n_features * var), 'auto' = 1/n_features.
+    #    Small gamma = wide influence (smoother boundary).
+    #    Large gamma = narrow influence (more complex boundary).
+    param_grid = {
+        'C': [0.1, 1, 10, 100],
+        'gamma': ['scale', 'auto', 0.01, 0.001],
+    }
 
-    # Make predictions on the test set
-    y_pred = svm_model.predict(X_test)
+    # class_weight='balanced' makes the model pay equal attention to both
+    # classes, even if one has more samples. It multiplies the penalty for
+    # misclassifying the minority class by (n_samples / (2 * n_minority)).
+    base_svm = SVC(kernel="rbf", class_weight="balanced", random_state=42)
+
+    print("    Running GridSearchCV (4x4 = 16 combinations, 3-fold CV)...")
+    grid_search = GridSearchCV(
+        base_svm, param_grid,
+        cv=3,              # 3-fold cross-validation
+        scoring='f1_weighted',  # Optimize for weighted F1 (handles imbalance)
+        n_jobs=-1,         # Use all CPU cores
+        refit=True,        # Retrain best model on full training subset
+    )
+    grid_search.fit(X_train_sub, y_train_sub)
+
+    best_params = grid_search.best_params_
+    print(f"    Best params: C={best_params['C']}, gamma={best_params['gamma']}")
+    print(f"    Best CV F1: {grid_search.best_score_:.4f}")
+
+    # The best model is already trained (refit=True)
+    svm_model = grid_search.best_estimator_
+
+    # Make predictions on the test set (using PCA-transformed test data)
+    y_pred = svm_model.predict(X_test_pca)
 
     # Calculate how well it did
     results = _compute_metrics(y_test, y_pred, "SVM")
+    results["best_params"] = best_params
+    results["pca_components"] = X_train_pca.shape[1]
     return svm_model, results
 
 
@@ -166,16 +213,23 @@ def train_svm(X_train, y_train, X_test, y_test):
 # RANDOM FOREST CLASSIFIER
 # =============================================================================
 
-def train_random_forest(X_train, y_train, X_test, y_test):
+def train_random_forest(X_train, y_train, X_test, y_test, feature_names=None):
     """
     Train a Random Forest classifier.
 
     HOW RANDOM FOREST WORKS (simplified):
-    1. Create 100 "decision trees" (like flowcharts of yes/no questions).
+    1. Create 500 "decision trees" (like flowcharts of yes/no questions).
     2. Each tree is trained on a random subset of the data and features.
        This randomness prevents the trees from all making the same mistakes.
     3. To classify a new ECG, every tree votes "Normal" or "Abnormal".
     4. The final answer is the majority vote.
+
+    IMPROVEMENTS OVER A BASIC RANDOM FOREST:
+    1. 500 trees (up from 100): more votes = more stable predictions.
+    2. No max_depth cap, but min_samples_leaf=5: trees grow as deep as
+       needed but can't memorize individual samples.
+    3. class_weight='balanced': adjusts for class imbalance.
+    4. Extracts feature importances for visualization.
 
     WHY IT'S GOOD FOR BEGINNERS:
     - Works well "out of the box" without much tuning
@@ -189,20 +243,24 @@ def train_random_forest(X_train, y_train, X_test, y_test):
     y_train : np.ndarray -- Training labels.
     X_test  : np.ndarray -- Test features.
     y_test  : np.ndarray -- Test labels.
+    feature_names : list of str, optional
+        Names of each feature (for importance ranking).
 
     Returns
     -------
     model   : The trained Random Forest model.
-    results : dict with accuracy, precision, recall, F1, etc.
+    results : dict with accuracy, precision, recall, F1, feature importances, etc.
     """
     print("  Training Random Forest classifier...")
 
     # Create and train the Random Forest model
     rf_model = RandomForestClassifier(
-        n_estimators=100,   # Number of trees in the forest
-        max_depth=20,       # Max depth of each tree (prevents overfitting)
-        random_state=42,    # Reproducible results
-        n_jobs=-1,          # Use ALL CPU cores for faster training
+        n_estimators=500,        # 500 trees for stable predictions
+        max_depth=None,          # Let trees grow as deep as needed
+        min_samples_leaf=5,      # But require at least 5 samples per leaf
+        class_weight="balanced", # Handle class imbalance
+        random_state=42,         # Reproducible results
+        n_jobs=-1,               # Use ALL CPU cores for faster training
     )
     rf_model.fit(X_train, y_train)
 
@@ -211,6 +269,15 @@ def train_random_forest(X_train, y_train, X_test, y_test):
 
     # Calculate how well it did
     results = _compute_metrics(y_test, y_pred, "Random Forest")
+
+    # Store feature importances for visualization
+    # Each tree tracks which features reduced prediction errors the most.
+    # feature_importances_ averages this across all 500 trees.
+    importances = rf_model.feature_importances_
+    results["feature_importances"] = importances
+    if feature_names is not None:
+        results["feature_names"] = feature_names
+
     return rf_model, results
 
 
@@ -218,24 +285,32 @@ def train_random_forest(X_train, y_train, X_test, y_test):
 # K-MEANS CLUSTERING
 # =============================================================================
 
-def train_kmeans(X_train, y_train, X_test, y_test, n_clusters=2):
+def train_kmeans(X_train, y_train, X_test, y_test, n_clusters=5):
     """
     Perform K-Means clustering (unsupervised).
 
     HOW K-MEANS WORKS (simplified):
-    1. Pick 2 random points as initial "cluster centers".
+    1. Pick N random points as initial "cluster centers".
     2. Assign every ECG record to the nearest center.
     3. Move each center to the average position of its assigned records.
     4. Repeat steps 2-3 until the centers stop moving.
 
     IMPORTANT DIFFERENCE FROM SVM AND RANDOM FOREST:
     K-Means does NOT look at the labels during training. It groups data
-    purely by how similar the features are. After it finds 2 groups,
-    we check: does Group 1 mostly contain Normal ECGs? If so, we label
-    that group as "Normal". This lets us compare its accuracy with the
-    supervised methods.
+    purely by how similar the features are. After it finds groups,
+    we check: does each group mostly contain Normal or Abnormal ECGs?
+    This lets us compare its accuracy with the supervised methods.
 
-    K-Means will likely perform worse than SVM and Random Forest.
+    IMPROVEMENTS OVER BASIC K-MEANS:
+    1. PCA to 20 components: K-Means uses Euclidean distance, which
+       breaks down in high dimensions (the "curse of dimensionality").
+       Reducing to 20 components concentrates the signal and removes
+       noise, giving K-Means a much better chance.
+    2. 5 clusters instead of 2: The data may have sub-groups (different
+       types of abnormalities). More clusters lets K-Means find finer
+       structure, then we map each cluster to Normal or Abnormal.
+
+    K-Means will still likely perform worse than SVM and Random Forest.
 
     Parameters
     ----------
@@ -243,7 +318,7 @@ def train_kmeans(X_train, y_train, X_test, y_test, n_clusters=2):
     y_train  : np.ndarray -- Training labels (used only for cluster mapping).
     X_test   : np.ndarray -- Test features.
     y_test   : np.ndarray -- Test labels (for evaluation).
-    n_clusters : int -- Number of clusters (2 for Normal vs Abnormal).
+    n_clusters : int -- Number of clusters (default: 5).
 
     Returns
     -------
@@ -252,26 +327,32 @@ def train_kmeans(X_train, y_train, X_test, y_test, n_clusters=2):
     """
     print("  Running K-Means clustering...")
 
-    # Create and train K-Means
+    # --- Step 1: PCA dimensionality reduction ---
+    # Reduce to 20 components so K-Means distance calculations are meaningful.
+    n_components = min(20, X_train.shape[1])
+    pca = PCA(n_components=n_components, random_state=42)
+    X_train_pca = pca.fit_transform(X_train)
+    X_test_pca = pca.transform(X_test)
+    print(f"    PCA: {X_train.shape[1]} features -> {n_components} components")
+
+    # --- Step 2: K-Means clustering ---
     # n_init=10: run the algorithm 10 times with different starting points
     #            and keep the best result (K-Means is sensitive to starting points)
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    kmeans.fit(X_train)
+    kmeans.fit(X_train_pca)
+    print(f"    Using {n_clusters} clusters (mapped to binary labels)")
 
-    # Assign each test record to a cluster (0 or 1)
-    cluster_labels = kmeans.predict(X_test)
+    # Assign each test record to a cluster
+    cluster_labels = kmeans.predict(X_test_pca)
 
-    # NOW we need to figure out which cluster corresponds to which label.
-    # We do this by looking at the training data:
+    # --- Step 3: Map clusters to binary labels ---
     # For each cluster, find which real label (Normal or Abnormal) appears most.
-    train_clusters = kmeans.predict(X_train)
+    train_clusters = kmeans.predict(X_train_pca)
     cluster_to_label = {}
 
     for cluster_id in range(n_clusters):
-        # Find all training samples assigned to this cluster
         mask = train_clusters == cluster_id
         if mask.sum() > 0:
-            # What's the most common real label in this cluster?
             labels_in_cluster = y_train[mask]
             values, counts = np.unique(labels_in_cluster, return_counts=True)
             cluster_to_label[cluster_id] = values[np.argmax(counts)]
@@ -284,8 +365,9 @@ def train_kmeans(X_train, y_train, X_test, y_test, n_clusters=2):
     # Calculate how well it did
     results = _compute_metrics(y_test, y_pred, "K-Means")
     results["cluster_to_label_mapping"] = cluster_to_label
-    results["raw_cluster_labels"] = cluster_labels  # Raw cluster IDs (0 or 1)
-    results["y_true"] = y_test                      # True labels for the test set
+    results["raw_cluster_labels"] = cluster_labels
+    results["y_true"] = y_test
+    results["pca_components"] = n_components
     return kmeans, results
 
 

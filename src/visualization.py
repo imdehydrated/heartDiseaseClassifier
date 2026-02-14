@@ -10,7 +10,8 @@ Charts created:
   2. Model comparison bar chart -- side-by-side accuracy/precision/recall/F1
   3. Feature distribution histograms -- how features differ between classes
   4. K-Means cluster distribution -- how K-Means grouped the data
-  5. Text reports -- detailed classification reports saved as .txt files
+  5. Feature importance bar chart -- top 20 features from Random Forest
+  6. Text reports -- detailed classification reports saved as .txt files
 """
 
 import os
@@ -158,35 +159,29 @@ def plot_feature_distributions(X_features, y_labels, feature_names):
     ECGs have different distributions for a feature, that feature is useful
     for classification.
 
-    We pick 4 features from Lead II (the most commonly used clinical lead)
-    to keep things simple.
+    We pick the first 4 available features from the selected feature set
+    to show representative distributions.
 
     Parameters
     ----------
-    X_features : np.ndarray of shape (n_samples, 120)
-        The extracted feature vectors.
+    X_features : np.ndarray of shape (n_samples, n_features)
+        The extracted feature vectors (after feature selection).
     y_labels : np.ndarray of shape (n_samples,)
         Binary labels (0=Normal, 1=Abnormal).
     feature_names : list of str
-        Names for all 120 features.
+        Names for the features (must match X_features columns).
     """
     _ensure_results_dir()
 
-    # Lead II is the second lead (index 1). Each lead has 10 features.
-    # So Lead II features start at index 1 * 10 = 10.
-    lead_ii_start = 10
-
-    # Pick 4 interesting features from Lead II
-    feature_indices = [
-        lead_ii_start + 0,   # Mean (average voltage)
-        lead_ii_start + 1,   # Std (signal variability)
-        lead_ii_start + 4,   # Skewness (signal asymmetry)
-        lead_ii_start + 8,   # Dominant frequency (main rhythm)
-    ]
+    # Pick up to 4 features to display. After feature selection, column
+    # indices no longer match the original positions, so we just pick
+    # the first 4 available features.
+    n_to_plot = min(4, len(feature_names))
+    feature_indices = list(range(n_to_plot))
 
     # Create a 2x2 grid of plots
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-    axes = axes.flatten()  # Convert 2D grid to 1D list for easier looping
+    axes = axes.flatten()
 
     for ax, feat_idx in zip(axes, feature_indices):
         # Separate the feature values by class
@@ -202,8 +197,12 @@ def plot_feature_distributions(X_features, y_labels, feature_names):
         ax.set_ylabel("Count")
         ax.legend()
 
+    # Hide any unused subplots (if fewer than 4 features)
+    for ax in axes[n_to_plot:]:
+        ax.set_visible(False)
+
     plt.suptitle(
-        "Feature Distributions: Normal vs Abnormal (Lead II)",
+        "Feature Distributions: Normal vs Abnormal",
         fontsize=14,
     )
     plt.tight_layout()
@@ -285,6 +284,53 @@ def plot_kmeans_clusters(results):
     plt.savefig(os.path.join(RESULTS_DIR, "kmeans_cluster_distribution.png"), dpi=150)
     plt.close()
     print("    Saved: kmeans_cluster_distribution.png")
+
+
+# =============================================================================
+# FEATURE IMPORTANCE CHART
+# =============================================================================
+
+def plot_feature_importance(results, top_n=20):
+    """
+    Plot a horizontal bar chart of the top N most important features.
+
+    Random Forest tracks which features helped reduce prediction errors
+    the most across all its trees. This chart shows those features ranked
+    from most to least important, making it easy to see what the model
+    relies on for classification.
+
+    This is valuable for your report -- it shows which ECG characteristics
+    actually matter for distinguishing Normal from Abnormal hearts.
+
+    Parameters
+    ----------
+    results : dict
+        Random Forest results dictionary (must have 'feature_importances'
+        and optionally 'feature_names').
+    top_n : int
+        Number of top features to display (default: 20).
+    """
+    _ensure_results_dir()
+
+    importances = results["feature_importances"]
+    names = results.get("feature_names", [f"Feature {i}" for i in range(len(importances))])
+
+    # Sort by importance and take the top N
+    sorted_idx = np.argsort(importances)[-top_n:]  # indices of top N (ascending)
+    top_importances = importances[sorted_idx]
+    top_names = [names[i] for i in sorted_idx]
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.barh(range(top_n), top_importances, color="teal")
+    ax.set_yticks(range(top_n))
+    ax.set_yticklabels(top_names)
+    ax.set_xlabel("Importance Score")
+    ax.set_title(f"Top {top_n} Most Important Features (Random Forest)")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(RESULTS_DIR, "feature_importance.png"), dpi=150)
+    plt.close()
+    print("    Saved: feature_importance.png")
 
 
 # =============================================================================

@@ -5,10 +5,11 @@ This is the main entry point for the project. When you run this file,
 it executes the entire machine learning pipeline from start to finish:
 
   Step 1: Download the PTB-XL ECG dataset (skipped if already downloaded)
-  Step 2: Extract numerical features from the raw ECG signals
-  Step 3: Scale the features so all values are in a similar range
-  Step 4: Train three classifiers (SVM, Random Forest, K-Means) and evaluate them
-  Step 5: Generate comparison plots and save reports to the results/ folder
+  Step 2: Extract 309 features from the raw ECG signals
+  Step 3: Select best features (remove redundant/noisy ones)
+  Step 4: Scale the features so all values are in a similar range
+  Step 5: Train three classifiers (SVM, Random Forest, K-Means) and evaluate them
+  Step 6: Generate comparison plots and save reports to the results/ folder
 
 HOW TO RUN:
   Make sure your virtual environment is active, then run:
@@ -31,12 +32,13 @@ import numpy as np
 # Import our custom modules from the src/ package.
 # Each module handles one part of the pipeline.
 from src.data_loader import load_dataset
-from src.feature_extraction import extract_features, FEATURE_NAMES
+from src.feature_extraction import extract_features, select_features
 from src.classifiers import scale_features, train_svm, train_random_forest, train_kmeans
 from src.visualization import (
     plot_confusion_matrix,
     plot_model_comparison,
     plot_feature_distributions,
+    plot_feature_importance,
     plot_kmeans_clusters,
     save_classification_reports,
 )
@@ -90,9 +92,10 @@ def main():
     # ==================================================================
     # The raw ECG signals are 2D arrays (1000 timesteps x 12 leads).
     # Machine learning models need fixed-size 1D input, so we compute
-    # 10 summary statistics per lead = 120 features per ECG record.
+    # 309 features per ECG record: signal stats, HRV, morphological,
+    # wavelet, and frequency band energy features.
     # ==================================================================
-    print("\n[Step 2/5] Extracting features from ECG signals...")
+    print("\n[Step 2/6] Extracting features from ECG signals...")
     step_start = time.time()
 
     X_train_feat = extract_features(data["X_train"])
@@ -104,14 +107,32 @@ def main():
     print(f"  Completed in {elapsed:.1f} seconds.")
 
     # ==================================================================
-    # STEP 3: Scale features
+    # STEP 3: Feature selection
+    # ==================================================================
+    # With 309 features, many are redundant or noisy. We use Random
+    # Forest importance + mutual information to keep only the most
+    # useful features. This reduces noise and improves accuracy,
+    # especially for K-Means.
+    # ==================================================================
+    print("\n[Step 3/6] Selecting best features...")
+    step_start = time.time()
+
+    X_train_feat, X_val_feat, X_test_feat, selected_names, selected_idx = \
+        select_features(X_train_feat, data["y_train"], X_val_feat, X_test_feat)
+
+    elapsed = time.time() - step_start
+    print(f"  Reduced to {X_train_feat.shape[1]} features.")
+    print(f"  Completed in {elapsed:.1f} seconds.")
+
+    # ==================================================================
+    # STEP 4: Scale features
     # ==================================================================
     # Standardize all features to have mean=0 and std=1.
     # This is important because some features (like spectral energy)
     # have much larger numbers than others (like mean voltage).
     # Without scaling, SVM would focus only on the large-numbered features.
     # ==================================================================
-    print("\n[Step 3/5] Scaling features...")
+    print("\n[Step 4/6] Scaling features...")
 
     X_train_scaled, X_val_scaled, X_test_scaled, scaler = scale_features(
         X_train_feat, X_val_feat, X_test_feat
@@ -119,7 +140,7 @@ def main():
     print("  Done (fit on training data, applied to all splits).")
 
     # ==================================================================
-    # STEP 4: Train and evaluate classifiers
+    # STEP 5: Train and evaluate classifiers
     # ==================================================================
     # We train three different models and test them all on the same
     # test set so the comparison is fair.
@@ -128,12 +149,12 @@ def main():
     # examples. K-Means is "unsupervised" -- it groups data by similarity
     # without using labels.
     # ==================================================================
-    print("\n[Step 4/5] Training and evaluating classifiers...")
+    print("\n[Step 5/6] Training and evaluating classifiers...")
 
     y_train = data["y_train"]
     y_test = data["y_test"]
 
-    # --- 4a: Support Vector Machine ---
+    # --- 5a: Support Vector Machine ---
     step_start = time.time()
     svm_model, svm_results = train_svm(
         X_train_scaled, y_train, X_test_scaled, y_test
@@ -142,19 +163,20 @@ def main():
     print(f"    SVM accuracy: {svm_results['accuracy']:.4f} "
           f"(took {elapsed:.1f}s)")
 
-    # --- 4b: Random Forest ---
+    # --- 5b: Random Forest ---
     step_start = time.time()
     rf_model, rf_results = train_random_forest(
-        X_train_scaled, y_train, X_test_scaled, y_test
+        X_train_scaled, y_train, X_test_scaled, y_test,
+        feature_names=selected_names,
     )
     elapsed = time.time() - step_start
     print(f"    Random Forest accuracy: {rf_results['accuracy']:.4f} "
           f"(took {elapsed:.1f}s)")
 
-    # --- 4c: K-Means Clustering ---
+    # --- 5c: K-Means Clustering ---
     step_start = time.time()
     km_model, km_results = train_kmeans(
-        X_train_scaled, y_train, X_test_scaled, y_test, n_clusters=2
+        X_train_scaled, y_train, X_test_scaled, y_test, n_clusters=5
     )
     elapsed = time.time() - step_start
     print(f"    K-Means accuracy: {km_results['accuracy']:.4f} "
@@ -169,7 +191,7 @@ def main():
     # Create plots that help you understand and present the results.
     # All files are saved to the results/ folder.
     # ==================================================================
-    print("\n[Step 5/5] Generating visualizations and reports...")
+    print("\n[Step 6/6] Generating visualizations and reports...")
 
     # Confusion matrices for the two supervised models
     plot_confusion_matrix(svm_results, "confusion_matrix_svm.png")
@@ -179,7 +201,10 @@ def main():
     plot_model_comparison(all_results)
 
     # Histograms showing how features differ between Normal and Abnormal
-    plot_feature_distributions(X_train_feat, y_train, FEATURE_NAMES)
+    plot_feature_distributions(X_train_feat, y_train, selected_names)
+
+    # Feature importance chart from Random Forest (top 20 features)
+    plot_feature_importance(rf_results)
 
     # K-Means cluster distribution chart
     plot_kmeans_clusters(km_results)
