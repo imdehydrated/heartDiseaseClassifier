@@ -37,6 +37,7 @@ results/
 # NOTES.md contains detailed technical explanations for personal reference.
 # It's not part of the project deliverable.
 NOTES.md
+HANDOFF.md
 
 # --- IDE / Editor files ---
 .vscode/

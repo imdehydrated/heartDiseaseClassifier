@@ -1,7 +1,12 @@
 """
 classifiers.py -- Train and evaluate three machine learning approaches.
 
-This module implements three different ways to classify ECG signals:
+This module implements three different ways to classify ECG signals.
+All three work on HANDCRAFTED FEATURES extracted by feature_extraction.py
+(309 numbers like mean, std, wavelet energy, etc.).
+
+A fourth approach (1D CNN) lives in cnn_model.py. The CNN is different
+because it works on RAW signals and learns its own features automatically.
 
 1. SVM (Support Vector Machine) -- SUPERVISED
    Think of it like drawing a line (or curve) on a graph that separates
@@ -24,10 +29,11 @@ This module implements three different ways to classify ECG signals:
    After clustering, we check if the groups it found match the real labels.
    "Unsupervised" means it does NOT use the labels to learn.
 
-Why compare all three?
+Why compare all four?
    SVM and Random Forest use labels (supervised) and should perform well.
    K-Means doesn't use labels (unsupervised) and will likely perform worse.
-   This comparison shows the value of having labeled data.
+   The CNN uses deep learning on raw signals -- a fundamentally different approach.
+   This comparison shows the value of labeled data AND automatic feature learning.
 """
 
 import numpy as np
@@ -187,7 +193,7 @@ def train_svm(X_train, y_train, X_test, y_test):
         base_svm, param_grid,
         cv=3,              # 3-fold cross-validation
         scoring='f1_weighted',  # Optimize for weighted F1 (handles imbalance)
-        n_jobs=-1,         # Use all CPU cores
+        n_jobs=-1,          # n_jobs=-1 crashes on Windows Store Python 3.13
         refit=True,        # Retrain best model on full training subset
     )
     grid_search.fit(X_train_sub, y_train_sub)
@@ -203,7 +209,7 @@ def train_svm(X_train, y_train, X_test, y_test):
     y_pred = svm_model.predict(X_test_pca)
 
     # Calculate how well it did
-    results = _compute_metrics(y_test, y_pred, "SVM")
+    results = compute_metrics(y_test, y_pred, "SVM")
     results["best_params"] = best_params
     results["pca_components"] = X_train_pca.shape[1]
     return svm_model, results
@@ -260,7 +266,7 @@ def train_random_forest(X_train, y_train, X_test, y_test, feature_names=None):
         min_samples_leaf=5,      # But require at least 5 samples per leaf
         class_weight="balanced", # Handle class imbalance
         random_state=42,         # Reproducible results
-        n_jobs=-1,               # Use ALL CPU cores for faster training
+        n_jobs=-1,                # n_jobs=-1 crashes on Windows Store Python 3.13
     )
     rf_model.fit(X_train, y_train)
 
@@ -268,7 +274,7 @@ def train_random_forest(X_train, y_train, X_test, y_test, feature_names=None):
     y_pred = rf_model.predict(X_test)
 
     # Calculate how well it did
-    results = _compute_metrics(y_test, y_pred, "Random Forest")
+    results = compute_metrics(y_test, y_pred, "Random Forest")
 
     # Store feature importances for visualization
     # Each tree tracks which features reduced prediction errors the most.
@@ -363,7 +369,7 @@ def train_kmeans(X_train, y_train, X_test, y_test, n_clusters=5):
     y_pred = np.array([cluster_to_label[c] for c in cluster_labels])
 
     # Calculate how well it did
-    results = _compute_metrics(y_test, y_pred, "K-Means")
+    results = compute_metrics(y_test, y_pred, "K-Means")
     results["cluster_to_label_mapping"] = cluster_to_label
     results["raw_cluster_labels"] = cluster_labels
     results["y_true"] = y_test
@@ -375,7 +381,7 @@ def train_kmeans(X_train, y_train, X_test, y_test, n_clusters=5):
 # METRICS CALCULATION
 # =============================================================================
 
-def _compute_metrics(y_true, y_pred, model_name):
+def compute_metrics(y_true, y_pred, model_name):
     """
     Calculate how well a model performed.
 

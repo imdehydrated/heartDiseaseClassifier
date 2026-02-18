@@ -8,8 +8,13 @@ it executes the entire machine learning pipeline from start to finish:
   Step 2: Extract 309 features from the raw ECG signals
   Step 3: Select best features (remove redundant/noisy ones)
   Step 4: Scale the features so all values are in a similar range
-  Step 5: Train three classifiers (SVM, Random Forest, K-Means) and evaluate them
-  Step 6: Generate comparison plots and save reports to the results/ folder
+  Step 5: Train three ML classifiers (SVM, Random Forest, K-Means)
+  Step 6: Train a 1D CNN on raw ECG signals (no features needed)
+  Step 7: Generate comparison plots and save reports to the results/ folder
+
+The first five classifiers (SVM, RF, K-Means) use handcrafted features.
+The CNN takes a different approach: it learns features directly from the
+raw ECG signals, which is the key advantage of deep learning.
 
 HOW TO RUN:
   Make sure your virtual environment is active, then run:
@@ -21,7 +26,7 @@ HOW TO RUN:
 
 WHAT YOU'LL SEE:
   - Progress messages as each step completes
-  - A summary table at the end comparing all three classifiers
+  - A summary table at the end comparing all four classifiers
   - Plots and reports saved in the results/ folder
 """
 
@@ -33,7 +38,13 @@ import numpy as np
 # Each module handles one part of the pipeline.
 from src.data_loader import load_dataset
 from src.feature_extraction import extract_features, select_features
+# classifiers.py has the three traditional ML models (SVM, RF, K-Means).
+# They all work on handcrafted features extracted from the ECG signals.
 from src.classifiers import scale_features, train_svm, train_random_forest, train_kmeans
+
+# cnn_model.py has the deep learning approach. Unlike the ML models above,
+# the CNN works on RAW signals -- it learns its own features automatically.
+from src.cnn_model import train_cnn
 from src.visualization import (
     plot_confusion_matrix,
     plot_model_comparison,
@@ -48,8 +59,11 @@ def main():
     """
     Run the complete heart disease classification pipeline.
 
-    This function orchestrates all the steps and prints progress
-    along the way so you know what's happening.
+    This function orchestrates all 7 steps and prints progress
+    along the way so you know what's happening. Steps 1-5 handle
+    the traditional ML approach (extract features, then classify).
+    Step 6 is the deep learning approach (CNN on raw signals).
+    Step 7 generates visualizations comparing all models.
     """
     print("=" * 60)
     print("  Heart Disease Classifier")
@@ -67,7 +81,7 @@ def main():
     # reads all 21,799 ECG recordings, parses their diagnostic labels,
     # and splits them into training, validation, and test sets.
     # ==================================================================
-    print("\n[Step 1/5] Loading dataset...")
+    print("\n[Step 1/7] Loading dataset...")
     step_start = time.time()
 
     data = load_dataset()
@@ -95,7 +109,7 @@ def main():
     # 309 features per ECG record: signal stats, HRV, morphological,
     # wavelet, and frequency band energy features.
     # ==================================================================
-    print("\n[Step 2/6] Extracting features from ECG signals...")
+    print("\n[Step 2/7] Extracting features from ECG signals...")
     step_start = time.time()
 
     X_train_feat = extract_features(data["X_train"])
@@ -114,7 +128,7 @@ def main():
     # useful features. This reduces noise and improves accuracy,
     # especially for K-Means.
     # ==================================================================
-    print("\n[Step 3/6] Selecting best features...")
+    print("\n[Step 3/7] Selecting best features...")
     step_start = time.time()
 
     X_train_feat, X_val_feat, X_test_feat, selected_names, selected_idx = \
@@ -132,7 +146,7 @@ def main():
     # have much larger numbers than others (like mean voltage).
     # Without scaling, SVM would focus only on the large-numbered features.
     # ==================================================================
-    print("\n[Step 4/6] Scaling features...")
+    print("\n[Step 4/7] Scaling features...")
 
     X_train_scaled, X_val_scaled, X_test_scaled, scaler = scale_features(
         X_train_feat, X_val_feat, X_test_feat
@@ -149,7 +163,7 @@ def main():
     # examples. K-Means is "unsupervised" -- it groups data by similarity
     # without using labels.
     # ==================================================================
-    print("\n[Step 5/6] Training and evaluating classifiers...")
+    print("\n[Step 5/7] Training and evaluating ML classifiers...")
 
     y_train = data["y_train"]
     y_test = data["y_test"]
@@ -182,20 +196,46 @@ def main():
     print(f"    K-Means accuracy: {km_results['accuracy']:.4f} "
           f"(took {elapsed:.1f}s)")
 
-    # Collect all results for comparison
-    all_results = [svm_results, rf_results, km_results]
+    # ==================================================================
+    # STEP 6: Train the 1D CNN (deep learning approach)
+    # ==================================================================
+    # This is fundamentally different from Steps 2-5 above.
+    # The ML classifiers (SVM, RF, K-Means) needed us to manually design
+    # 309 features from the ECG signals. The CNN skips all of that -- it
+    # takes the RAW signals as input and learns its own features through
+    # convolutional layers. This is the key advantage of deep learning.
+    #
+    # Notice we pass data["X_train"] (raw signals), NOT X_train_scaled
+    # (the extracted+scaled features used by SVM/RF/K-Means).
+    # ==================================================================
+    print("\n[Step 6/7] Training 1D CNN on raw ECG signals...")
+    step_start = time.time()
+
+    cnn_model, cnn_results = train_cnn(
+        data["X_train"], data["y_train"],
+        data["X_val"], data["y_val"],
+        data["X_test"], data["y_test"],
+    )
+
+    elapsed = time.time() - step_start
+    print(f"    CNN accuracy: {cnn_results['accuracy']:.4f} "
+          f"(took {elapsed:.1f}s)")
+
+    # Collect all results for comparison (3 ML models + 1 deep learning)
+    all_results = [svm_results, rf_results, km_results, cnn_results]
 
     # ==================================================================
-    # STEP 5: Generate visualizations and reports
+    # STEP 7: Generate visualizations and reports
     # ==================================================================
     # Create plots that help you understand and present the results.
     # All files are saved to the results/ folder.
     # ==================================================================
-    print("\n[Step 6/6] Generating visualizations and reports...")
+    print("\n[Step 7/7] Generating visualizations and reports...")
 
-    # Confusion matrices for the two supervised models
+    # Confusion matrices for the supervised and deep learning models
     plot_confusion_matrix(svm_results, "confusion_matrix_svm.png")
     plot_confusion_matrix(rf_results, "confusion_matrix_rf.png")
+    plot_confusion_matrix(cnn_results, "confusion_matrix_cnn.png")
 
     # Side-by-side bar chart comparing all three models
     plot_model_comparison(all_results)
@@ -224,7 +264,16 @@ def main():
     print("  " + "-" * 51)
 
     for r in all_results:
-        model_type = "unsupervised" if r["model_name"] == "K-Means" else "supervised"
+        # Each model uses a different learning paradigm:
+        #   supervised   = learns from labeled examples (SVM, RF)
+        #   unsupervised = groups data without labels (K-Means)
+        #   deep learning = learns features + classifier end-to-end (CNN)
+        if r["model_name"] == "K-Means":
+            model_type = "unsupervised"
+        elif r["model_name"] == "1D CNN":
+            model_type = "deep learning"
+        else:
+            model_type = "supervised"
         print(f"  {r['model_name']:<18} {model_type:<15} "
               f"{r['accuracy']:>8.4f} {r['f1']:>9.4f}")
 

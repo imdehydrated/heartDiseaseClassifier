@@ -2,12 +2,14 @@
 visualization.py -- Generate plots and save them to the results/ folder.
 
 This module creates visual charts that help you understand how well
-each classifier performed. All charts are saved as PNG image files
-in the results/ folder.
+each classifier performed (SVM, Random Forest, K-Means, and 1D CNN).
+All charts are saved as PNG image files in the results/ folder.
 
 Charts created:
   1. Confusion matrix heatmaps -- shows what each model got right/wrong
+     (one each for SVM, Random Forest, and CNN)
   2. Model comparison bar chart -- side-by-side accuracy/precision/recall/F1
+     for all four models
   3. Feature distribution histograms -- how features differ between classes
   4. K-Means cluster distribution -- how K-Means grouped the data
   5. Feature importance bar chart -- top 20 features from Random Forest
@@ -116,7 +118,9 @@ def plot_model_comparison(all_results):
 
     # x positions for the groups of bars
     x = np.arange(len(metrics))
-    width = 0.25  # Width of each bar
+    # Bar width: narrower to fit 4 models side by side without overlapping.
+    # Was 0.25 for 3 models, now 0.18 for 4 models.
+    width = 0.18
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -136,7 +140,9 @@ def plot_model_comparison(all_results):
     ax.set_xlabel("Metric")
     ax.set_ylabel("Score (higher is better)")
     ax.set_title("Model Comparison: Normal vs Abnormal ECG Classification")
-    ax.set_xticks(x + width)
+    # Center the tick labels under the middle of the group of bars.
+    # With 4 models, the center is at offset width * 1.5 from the left edge.
+    ax.set_xticks(x + width * 1.5)
     ax.set_xticklabels([m.capitalize() for m in metrics])
     ax.legend()
     ax.set_ylim(0, 1.15)  # Scores range from 0 to 1; leave room for labels

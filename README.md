@@ -1,13 +1,14 @@
 # Heart Disease Classifier
 
-Classify heart conditions from ECG (electrocardiogram) signals using machine learning. This project uses the **PTB-XL** dataset and compares three approaches: **SVM**, **Random Forest**, and **K-Means**.
+Classify heart conditions from ECG (electrocardiogram) signals using machine learning and deep learning. This project uses the **PTB-XL** dataset and compares four approaches: **SVM**, **Random Forest**, **K-Means**, and a **1D CNN**.
 
 ## What This Project Does
 
 1. Downloads 21,799 real clinical ECG recordings from the [PTB-XL dataset](https://physionet.org/content/ptb-xl/1.0.3/)
 2. Extracts 309 numerical features from each recording using signal processing (scipy, PyWavelets)
-3. Trains three machine learning models to classify ECGs as **Normal** or **Abnormal**
-4. Compares the models and generates plots showing the results
+3. Trains three ML models on the extracted features to classify ECGs as **Normal** or **Abnormal**
+4. Trains a 1D CNN directly on the raw ECG signals (no manual feature extraction needed)
+5. Compares all four models and generates plots showing the results
 
 ## Quick Start
 
@@ -36,6 +37,7 @@ heartDiseaseClassifier/
 │   ├── data_loader.py          # Downloads PTB-XL dataset, loads signals & labels
 │   ├── feature_extraction.py   # Extracts numerical features using scipy
 │   ├── classifiers.py          # SVM, Random Forest, K-Means training & evaluation
+│   ├── cnn_model.py            # 1D CNN: learns features from raw ECG signals
 │   └── visualization.py        # Plots: confusion matrices, comparison charts
 ├── data/                       # Downloaded dataset (auto-created, not in git)
 ├── results/                    # Generated plots and reports (auto-created)
@@ -48,7 +50,7 @@ heartDiseaseClassifier/
 
 ### The Pipeline
 
-When you run `python main.py`, six steps happen in order:
+When you run `python main.py`, seven steps happen in order:
 
 | Step | What Happens | Module |
 |------|-------------|--------|
@@ -56,16 +58,22 @@ When you run `python main.py`, six steps happen in order:
 | 2 | Extract 309 features per recording (signal, HRV, morphological, wavelet, frequency band) | `feature_extraction.py` |
 | 3 | Select best features using RF importance + mutual information (removes redundant/noisy ones) | `feature_extraction.py` |
 | 4 | Scale features to a standard range | `classifiers.py` |
-| 5 | Train SVM, Random Forest, and K-Means; evaluate on test set | `classifiers.py` |
-| 6 | Generate comparison plots and text reports | `visualization.py` |
+| 5 | Train SVM, Random Forest, and K-Means on extracted features; evaluate on test set | `classifiers.py` |
+| 6 | Train 1D CNN on raw ECG signals (skips feature extraction entirely); evaluate on test set | `cnn_model.py` |
+| 7 | Generate comparison plots and text reports | `visualization.py` |
 
-### The Three Classifiers
+### The Four Classifiers
 
 | Classifier | Type | How It Works |
 |-----------|------|-------------|
 | **SVM** | Supervised | Finds the best curved boundary between Normal and Abnormal (with PCA + GridSearchCV tuning) |
 | **Random Forest** | Supervised | 500 decision trees vote on each prediction (with balanced class weights) |
 | **K-Means** | Unsupervised | Groups ECGs into 5 clusters by similarity (with PCA to 20 dimensions), then maps clusters to labels |
+| **1D CNN** | Deep Learning | Learns features directly from raw ECG signals using convolutional layers, with per-lead normalization and data augmentation (no handcrafted features needed) |
+
+**Why a CNN?** The three ML models above rely on 309 features that we designed by hand (mean, std, wavelet energy, etc.). The CNN takes a completely different approach: it receives the raw ECG waveform and learns its own features through convolutional filters. This is the key advantage of deep learning -- it replaces hundreds of lines of manual feature engineering with automatic feature learning, and often discovers patterns that humans wouldn't think to look for.
+
+**CNN preprocessing:** Each ECG lead is normalized to zero mean and unit standard deviation before entering the network (removes voltage scale differences between patients). During training, random augmentations (Gaussian noise, amplitude scaling, time shifts) are applied to reduce overfitting and improve generalization.
 
 ### Features Extracted (309 total)
 
