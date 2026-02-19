@@ -69,11 +69,15 @@ When you run `python main.py`, seven steps happen in order:
 | **SVM** | Supervised | Finds the best curved boundary between Normal and Abnormal (with PCA + GridSearchCV tuning) |
 | **Random Forest** | Supervised | 500 decision trees vote on each prediction (with balanced class weights) |
 | **K-Means** | Unsupervised | Groups ECGs into 5 clusters by similarity (with PCA to 20 dimensions), then maps clusters to labels |
-| **1D CNN** | Deep Learning | Learns features directly from raw ECG signals using convolutional layers, with per-lead normalization and data augmentation (no handcrafted features needed) |
+| **1D CNN** | Deep Learning | Learns features directly from raw ECG signals using plain convolutional blocks with per-lead normalization, data augmentation, deterministic test-time augmentation (TTA), and validation-calibrated decision thresholding |
 
 **Why a CNN?** The three ML models above rely on 309 features that we designed by hand (mean, std, wavelet energy, etc.). The CNN takes a completely different approach: it receives the raw ECG waveform and learns its own features through convolutional filters. This is the key advantage of deep learning -- it replaces hundreds of lines of manual feature engineering with automatic feature learning, and often discovers patterns that humans wouldn't think to look for.
 
 **CNN preprocessing:** Each ECG lead is normalized to zero mean and unit standard deviation before entering the network (removes voltage scale differences between patients). During training, random augmentations (Gaussian noise, amplitude scaling, time shifts) are applied to reduce overfitting and improve generalization.
+
+**CNN clinical threshold policy:** The final CNN prediction is not forced to use a fixed 0.50 cutoff. Instead, the model chooses a validation-based threshold that maximizes **Abnormal recall** while enforcing a minimum **Normal specificity** floor (default 0.80). If no threshold satisfies the floor, the floor is relaxed in 0.02 steps. This makes the classifier safer for screening-style use while keeping weighted F1 reporting for comparability.
+
+**CNN robust inference (TTA):** At validation and test time, the model uses deterministic test-time augmentation (identity, small time shifts, small amplitude scales). Logits from these views are averaged before sigmoid conversion. This usually improves stability without changing training.
 
 ### Features Extracted (309 total)
 

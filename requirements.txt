@@ -12,6 +12,22 @@
 #   matplotlib   — Creates plots and charts
 #   PyWavelets   — Wavelet analysis (decomposes signals into time-frequency layers)
 #   torch        — PyTorch deep learning framework (used for the 1D CNN model)
+#
+# GPU SUPPORT (recommended for CNN training):
+#   The default "pip install torch" installs the CPU-only build.
+#   For GPU training, first check your CUDA version with "nvidia-smi", then run:
+#
+#     CPU only (default):
+#       pip install torch>=2.0.0
+#
+#     CUDA 12.1 (most modern NVIDIA GPUs):
+#       pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+#     CUDA 11.8 (older NVIDIA GPUs):
+#       pip install torch --index-url https://download.pytorch.org/whl/cu118
+#
+#   After installing, verify with:
+#     python -c "import torch; print(torch.cuda.is_available())"
 
 wfdb>=4.1.0
 pandas>=2.0.0

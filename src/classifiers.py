@@ -193,7 +193,7 @@ def train_svm(X_train, y_train, X_test, y_test):
         base_svm, param_grid,
         cv=3,              # 3-fold cross-validation
         scoring='f1_weighted',  # Optimize for weighted F1 (handles imbalance)
-        n_jobs=-1,          # n_jobs=-1 crashes on Windows Store Python 3.13
+        n_jobs=-1,          # Use all cores when environment allows multiprocessing
         refit=True,        # Retrain best model on full training subset
     )
     grid_search.fit(X_train_sub, y_train_sub)
@@ -266,7 +266,7 @@ def train_random_forest(X_train, y_train, X_test, y_test, feature_names=None):
         min_samples_leaf=5,      # But require at least 5 samples per leaf
         class_weight="balanced", # Handle class imbalance
         random_state=42,         # Reproducible results
-        n_jobs=-1,                # n_jobs=-1 crashes on Windows Store Python 3.13
+        n_jobs=-1,                # Use all cores when environment allows multiprocessing
     )
     rf_model.fit(X_train, y_train)
 

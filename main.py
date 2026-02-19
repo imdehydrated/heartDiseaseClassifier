@@ -37,10 +37,11 @@ import numpy as np
 # Import our custom modules from the src/ package.
 # Each module handles one part of the pipeline.
 from src.data_loader import load_dataset
-from src.feature_extraction import extract_features, select_features
-# classifiers.py has the three traditional ML models (SVM, RF, K-Means).
-# They all work on handcrafted features extracted from the ECG signals.
-from src.classifiers import scale_features, train_svm, train_random_forest, train_kmeans
+
+# Steps 2-5 (feature extraction, selection, scaling, ML classifiers) are
+# temporarily commented out while tuning the CNN. Uncomment to restore.
+# from src.feature_extraction import extract_features, select_features
+# from src.classifiers import scale_features, train_svm, train_random_forest, train_kmeans
 
 # cnn_model.py has the deep learning approach. Unlike the ML models above,
 # the CNN works on RAW signals -- it learns its own features automatically.
@@ -48,9 +49,9 @@ from src.cnn_model import train_cnn
 from src.visualization import (
     plot_confusion_matrix,
     plot_model_comparison,
-    plot_feature_distributions,
-    plot_feature_importance,
-    plot_kmeans_clusters,
+    # plot_feature_distributions,   # needs ML feature extraction
+    # plot_feature_importance,      # needs Random Forest results
+    # plot_kmeans_clusters,         # needs K-Means results
     save_classification_reports,
 )
 
@@ -102,99 +103,70 @@ def main():
     print(f"  Training labels:    {n_normal} Normal, {n_abnormal} Abnormal")
 
     # ==================================================================
-    # STEP 2: Extract features
+    # STEP 2: Extract features  [SKIPPED -- CNN-only mode]
     # ==================================================================
-    # The raw ECG signals are 2D arrays (1000 timesteps x 12 leads).
-    # Machine learning models need fixed-size 1D input, so we compute
-    # 309 features per ECG record: signal stats, HRV, morphological,
-    # wavelet, and frequency band energy features.
-    # ==================================================================
-    print("\n[Step 2/7] Extracting features from ECG signals...")
-    step_start = time.time()
-
-    X_train_feat = extract_features(data["X_train"])
-    X_val_feat = extract_features(data["X_val"])
-    X_test_feat = extract_features(data["X_test"])
-
-    elapsed = time.time() - step_start
-    print(f"  Feature vector shape: {X_train_feat.shape} (samples x features)")
-    print(f"  Completed in {elapsed:.1f} seconds.")
+    # print("\n[Step 2/7] Extracting features from ECG signals...")
+    # step_start = time.time()
+    # X_train_feat = extract_features(data["X_train"])
+    # X_val_feat = extract_features(data["X_val"])
+    # X_test_feat = extract_features(data["X_test"])
+    # elapsed = time.time() - step_start
+    # print(f"  Feature vector shape: {X_train_feat.shape} (samples x features)")
+    # print(f"  Completed in {elapsed:.1f} seconds.")
 
     # ==================================================================
-    # STEP 3: Feature selection
+    # STEP 3: Feature selection  [SKIPPED -- CNN-only mode]
     # ==================================================================
-    # With 309 features, many are redundant or noisy. We use Random
-    # Forest importance + mutual information to keep only the most
-    # useful features. This reduces noise and improves accuracy,
-    # especially for K-Means.
-    # ==================================================================
-    print("\n[Step 3/7] Selecting best features...")
-    step_start = time.time()
-
-    X_train_feat, X_val_feat, X_test_feat, selected_names, selected_idx = \
-        select_features(X_train_feat, data["y_train"], X_val_feat, X_test_feat)
-
-    elapsed = time.time() - step_start
-    print(f"  Reduced to {X_train_feat.shape[1]} features.")
-    print(f"  Completed in {elapsed:.1f} seconds.")
+    # print("\n[Step 3/7] Selecting best features...")
+    # step_start = time.time()
+    # X_train_feat, X_val_feat, X_test_feat, selected_names, selected_idx = \
+    #     select_features(X_train_feat, data["y_train"], X_val_feat, X_test_feat)
+    # elapsed = time.time() - step_start
+    # print(f"  Reduced to {X_train_feat.shape[1]} features.")
+    # print(f"  Completed in {elapsed:.1f} seconds.")
 
     # ==================================================================
-    # STEP 4: Scale features
+    # STEP 4: Scale features  [SKIPPED -- CNN-only mode]
     # ==================================================================
-    # Standardize all features to have mean=0 and std=1.
-    # This is important because some features (like spectral energy)
-    # have much larger numbers than others (like mean voltage).
-    # Without scaling, SVM would focus only on the large-numbered features.
-    # ==================================================================
-    print("\n[Step 4/7] Scaling features...")
-
-    X_train_scaled, X_val_scaled, X_test_scaled, scaler = scale_features(
-        X_train_feat, X_val_feat, X_test_feat
-    )
-    print("  Done (fit on training data, applied to all splits).")
+    # print("\n[Step 4/7] Scaling features...")
+    # X_train_scaled, X_val_scaled, X_test_scaled, scaler = scale_features(
+    #     X_train_feat, X_val_feat, X_test_feat
+    # )
+    # print("  Done (fit on training data, applied to all splits).")
 
     # ==================================================================
-    # STEP 5: Train and evaluate classifiers
+    # STEP 5: Train and evaluate classifiers  [SKIPPED -- CNN-only mode]
     # ==================================================================
-    # We train three different models and test them all on the same
-    # test set so the comparison is fair.
+    # y_train = data["y_train"]
+    # y_test = data["y_test"]
     #
-    # SVM and Random Forest are "supervised" -- they learn from labeled
-    # examples. K-Means is "unsupervised" -- it groups data by similarity
-    # without using labels.
-    # ==================================================================
-    print("\n[Step 5/7] Training and evaluating ML classifiers...")
-
-    y_train = data["y_train"]
-    y_test = data["y_test"]
-
-    # --- 5a: Support Vector Machine ---
-    step_start = time.time()
-    svm_model, svm_results = train_svm(
-        X_train_scaled, y_train, X_test_scaled, y_test
-    )
-    elapsed = time.time() - step_start
-    print(f"    SVM accuracy: {svm_results['accuracy']:.4f} "
-          f"(took {elapsed:.1f}s)")
-
-    # --- 5b: Random Forest ---
-    step_start = time.time()
-    rf_model, rf_results = train_random_forest(
-        X_train_scaled, y_train, X_test_scaled, y_test,
-        feature_names=selected_names,
-    )
-    elapsed = time.time() - step_start
-    print(f"    Random Forest accuracy: {rf_results['accuracy']:.4f} "
-          f"(took {elapsed:.1f}s)")
-
-    # --- 5c: K-Means Clustering ---
-    step_start = time.time()
-    km_model, km_results = train_kmeans(
-        X_train_scaled, y_train, X_test_scaled, y_test, n_clusters=5
-    )
-    elapsed = time.time() - step_start
-    print(f"    K-Means accuracy: {km_results['accuracy']:.4f} "
-          f"(took {elapsed:.1f}s)")
+    # # --- 5a: Support Vector Machine ---
+    # step_start = time.time()
+    # svm_model, svm_results = train_svm(
+    #     X_train_scaled, y_train, X_test_scaled, y_test
+    # )
+    # elapsed = time.time() - step_start
+    # print(f"    SVM accuracy: {svm_results['accuracy']:.4f} "
+    #       f"(took {elapsed:.1f}s)")
+    #
+    # # --- 5b: Random Forest ---
+    # step_start = time.time()
+    # rf_model, rf_results = train_random_forest(
+    #     X_train_scaled, y_train, X_test_scaled, y_test,
+    #     feature_names=selected_names,
+    # )
+    # elapsed = time.time() - step_start
+    # print(f"    Random Forest accuracy: {rf_results['accuracy']:.4f} "
+    #       f"(took {elapsed:.1f}s)")
+    #
+    # # --- 5c: K-Means Clustering ---
+    # step_start = time.time()
+    # km_model, km_results = train_kmeans(
+    #     X_train_scaled, y_train, X_test_scaled, y_test, n_clusters=5
+    # )
+    # elapsed = time.time() - step_start
+    # print(f"    K-Means accuracy: {km_results['accuracy']:.4f} "
+    #       f"(took {elapsed:.1f}s)")
 
     # ==================================================================
     # STEP 6: Train the 1D CNN (deep learning approach)
@@ -221,8 +193,10 @@ def main():
     print(f"    CNN accuracy: {cnn_results['accuracy']:.4f} "
           f"(took {elapsed:.1f}s)")
 
-    # Collect all results for comparison (3 ML models + 1 deep learning)
-    all_results = [svm_results, rf_results, km_results, cnn_results]
+    # CNN-only mode: only CNN results collected.
+    # Restore the full list when ML models are re-enabled:
+    #   all_results = [svm_results, rf_results, km_results, cnn_results]
+    all_results = [cnn_results]
 
     # ==================================================================
     # STEP 7: Generate visualizations and reports
@@ -232,22 +206,18 @@ def main():
     # ==================================================================
     print("\n[Step 7/7] Generating visualizations and reports...")
 
-    # Confusion matrices for the supervised and deep learning models
-    plot_confusion_matrix(svm_results, "confusion_matrix_svm.png")
-    plot_confusion_matrix(rf_results, "confusion_matrix_rf.png")
+    # Confusion matrix for CNN
     plot_confusion_matrix(cnn_results, "confusion_matrix_cnn.png")
 
-    # Side-by-side bar chart comparing all three models
+    # ML model plots -- re-enable when ML models are restored:
+    # plot_confusion_matrix(svm_results, "confusion_matrix_svm.png")
+    # plot_confusion_matrix(rf_results, "confusion_matrix_rf.png")
+    # plot_feature_distributions(X_train_feat, y_train, selected_names)
+    # plot_feature_importance(rf_results)
+    # plot_kmeans_clusters(km_results)
+
+    # Side-by-side bar chart comparing all models
     plot_model_comparison(all_results)
-
-    # Histograms showing how features differ between Normal and Abnormal
-    plot_feature_distributions(X_train_feat, y_train, selected_names)
-
-    # Feature importance chart from Random Forest (top 20 features)
-    plot_feature_importance(rf_results)
-
-    # K-Means cluster distribution chart
-    plot_kmeans_clusters(km_results)
 
     # Detailed text reports
     save_classification_reports(all_results)
