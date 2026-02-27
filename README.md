@@ -69,15 +69,28 @@ When you run `python main.py`, seven steps happen in order:
 | **SVM** | Supervised | Finds the best curved boundary between Normal and Abnormal (with PCA + GridSearchCV tuning) |
 | **Random Forest** | Supervised | 500 decision trees vote on each prediction (with balanced class weights) |
 | **K-Means** | Unsupervised | Groups ECGs into 5 clusters by similarity (with PCA to 20 dimensions), then maps clusters to labels |
-| **1D CNN** | Deep Learning | Learns features directly from raw ECG signals using plain convolutional blocks with per-lead normalization, data augmentation, deterministic test-time augmentation (TTA), and validation-calibrated decision thresholding |
+| **1D CNN** | Deep Learning | Learns features directly from raw ECG signals using a multi-scale entry block (kernel=7/15/31), LeakyReLU activations, per-lead normalization, data augmentation (noise, scaling, shift, lead dropout), optional label smoothing, deterministic TTA, and validation-calibrated decision thresholding |
 
 **Why a CNN?** The three ML models above rely on 309 features that we designed by hand (mean, std, wavelet energy, etc.). The CNN takes a completely different approach: it receives the raw ECG waveform and learns its own features through convolutional filters. This is the key advantage of deep learning -- it replaces hundreds of lines of manual feature engineering with automatic feature learning, and often discovers patterns that humans wouldn't think to look for.
 
-**CNN preprocessing:** Each ECG lead is normalized to zero mean and unit standard deviation before entering the network (removes voltage scale differences between patients). During training, random augmentations (Gaussian noise, amplitude scaling, time shifts) are applied to reduce overfitting and improve generalization.
+**CNN architecture (Session 2):** The first convolutional block is replaced by a multi-scale entry block that runs three parallel convolutions (kernel=7/15/31, covering 70ms/150ms/310ms of ECG signal) and concatenates their outputs into 48 channels. This lets the model detect QRS spikes, full QRS complex width, and P-wave/T-wave features simultaneously. All conv blocks use LeakyReLU instead of ReLU to prevent dead neurons. Total parameters: ~59k (up from ~46k).
+
+**CNN preprocessing:** Each ECG lead is normalized to zero mean and unit standard deviation before entering the network (removes voltage scale differences between patients). The current default uses train-set per-lead statistics for all splits (`normalization_mode='train_stats_per_lead'`), with per-record normalization still available as an option. During training, four augmentations are applied: Gaussian noise, amplitude scaling (0.8-1.2x), time shifts (up to 50 samples), and lead dropout (each lead has a 15% chance of being silenced to simulate poor electrode contact). Label smoothing is available as an optional regularizer, and is currently OFF by default.
 
 **CNN clinical threshold policy:** The final CNN prediction is not forced to use a fixed 0.50 cutoff. Instead, the model chooses a validation-based threshold that maximizes **Abnormal recall** while enforcing a minimum **Normal specificity** floor (default 0.80). If no threshold satisfies the floor, the floor is relaxed in 0.02 steps. This makes the classifier safer for screening-style use while keeping weighted F1 reporting for comparability.
 
 **CNN robust inference (TTA):** At validation and test time, the model uses deterministic test-time augmentation (identity, small time shifts, small amplitude scales). Logits from these views are averaged before sigmoid conversion. This usually improves stability without changing training.
+
+**CNN diagnosis knobs:** `train_cnn(...)` also supports optional tuning kwargs (`label_smoothing`, `lead_dropout_p`, `early_stop_patience`, `scheduler_patience`, `max_epochs`, `early_stop_mode`, `normalization_mode`, `random_seed`) so controlled ablations can be run without changing the `main.py` call signature. `load_dataset(...)` also supports optional `paper_style_filter=True` for paper-like metadata filtering.
+
+### What Changed and Why (Simple Terms)
+
+- We tested 9 controlled CNN runs (A0/A1/A2/A3/B1/B2/C1/S1/S2) to find out why results dropped.
+- Turning off label smoothing helped the most in the main run (A1), so label smoothing is now OFF by default.
+- Turning off lead dropout did not help clinical specificity, so lead dropout stays ON.
+- Longer training and longer patience increased recall, but pushed specificity below the clinical target on test data.
+- We also tested paper-like preprocessing options. Best result came from train-set per-lead normalization without paper-style record filtering.
+- Bottom line: we kept lead dropout + clinical threshold + deterministic TTA, kept label smoothing OFF, switched default normalization to train-set per-lead stats, and left paper-style filtering as optional.
 
 ### Features Extracted (309 total)
 

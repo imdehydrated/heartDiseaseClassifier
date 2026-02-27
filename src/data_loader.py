@@ -199,6 +199,86 @@ def _create_binary_label(superclass_list):
     return 1      # Abnormal
 
 
+def _apply_paper_style_filter(db, code_to_superclass):
+    """
+    Filter records using the paper-style metadata rules.
+
+    The filter removes records that satisfy any of:
+      1) Conflicting labels: contains NORM plus at least one non-NORM class
+      2) No diagnostic class after superclass mapping
+      3) Zero-likelihood SCP statements are removed at statement level first
+
+    This follows the filtering logic described in Saglietto et al. (2024)
+    for PTB-XL preprocessing.
+
+    Parameters
+    ----------
+    db : pd.DataFrame
+        Metadata table that already contains:
+        - scp_codes_dict (dict per row)
+    code_to_superclass : dict
+        Mapping from SCP code -> diagnostic superclass.
+
+    Returns
+    -------
+    filtered_db : pd.DataFrame
+        Copy of db after filtering.
+    filter_stats : dict
+        Counts for each exclusion rule and the total removed.
+    """
+    # Work on a copy so caller can keep the original frame intact.
+    filtered_db = db.copy()
+
+    # Rule (iii): remove zero-likelihood statements at statement level.
+    # We do NOT drop the full row just because one statement is 0.0.
+    def _drop_zero_likelihood_statements(scp_dict):
+        return {k: v for k, v in scp_dict.items() if float(v) > 0.0}
+
+    zero_statement_count = int(
+        filtered_db["scp_codes_dict"].apply(
+            lambda d: sum(float(v) == 0.0 for v in d.values())
+        ).sum()
+    )
+    filtered_db["scp_codes_dict"] = filtered_db["scp_codes_dict"].apply(
+        _drop_zero_likelihood_statements
+    )
+
+    # For paper-style filtering, use labels with likelihood > 0
+    # (after removing explicit zero-likelihood statements).
+    def _superclasses_for_filter(scp_dict):
+        labels = set()
+        for code, likelihood in scp_dict.items():
+            if float(likelihood) > 0.0 and code in code_to_superclass:
+                superclass = code_to_superclass[code]
+                if pd.notna(superclass):
+                    labels.add(superclass)
+        return list(labels)
+
+    filtered_db["paper_filter_superclass_list"] = filtered_db["scp_codes_dict"].apply(
+        _superclasses_for_filter
+    )
+
+    is_conflicting_norm = filtered_db["paper_filter_superclass_list"].apply(
+        lambda labels: ("NORM" in labels) and (len(labels) > 1)
+    )
+    is_no_classification = filtered_db["paper_filter_superclass_list"].apply(
+        lambda labels: len(labels) == 0
+    )
+
+    remove_mask = is_conflicting_norm | is_no_classification
+
+    filtered_db = filtered_db.loc[~remove_mask].copy()
+    filter_stats = {
+        "total_before": int(len(db)),
+        "removed_total": int(remove_mask.sum()),
+        "removed_conflicting_norm": int(is_conflicting_norm.sum()),
+        "removed_no_classification": int(is_no_classification.sum()),
+        "removed_zero_likelihood_statements": zero_statement_count,
+        "total_after": int(len(filtered_db)),
+    }
+    return filtered_db, filter_stats
+
+
 # =============================================================================
 # SIGNAL LOADING FUNCTION
 # =============================================================================
@@ -252,7 +332,7 @@ def _load_ecg_signals(dataset_path, filenames):
 # MAIN ENTRY POINT
 # =============================================================================
 
-def load_dataset():
+def load_dataset(paper_style_filter=False):
     """
     Download (if needed), load, and prepare the entire PTB-XL dataset.
 
@@ -268,6 +348,15 @@ def load_dataset():
     This stratified split ensures similar class distributions across sets
     and is the recommended split from the dataset authors.
 
+    Parameters
+    ----------
+    paper_style_filter : bool, default False
+        If True, apply paper-style metadata filtering before the fold split:
+          - remove conflicting NORM + non-NORM records
+          - remove records with no mapped diagnostic class
+          - remove records with any zero-likelihood SCP statement
+        If False, keep the original project behavior (no extra filtering).
+
     Returns
     -------
     dict with keys:
@@ -277,6 +366,10 @@ def load_dataset():
             NumPy arrays of integers (0=Normal, 1=Abnormal) -- binary labels.
         'metadata'
             The full pandas DataFrame with all metadata for reference.
+        'paper_style_filter'
+            Whether paper-style filtering was enabled.
+        'filter_stats'
+            Filtering summary counts (None when filter is disabled).
     """
     # Step 1: Download the dataset if it's not already on disk
     print("  Checking for dataset...")
@@ -309,6 +402,24 @@ def load_dataset():
     # Create binary label: 0=Normal, 1=Abnormal
     db["binary_label"] = db.superclass_list.apply(_create_binary_label)
 
+    filter_stats = None
+    if paper_style_filter:
+        print("  Applying paper-style metadata filter...")
+        db, filter_stats = _apply_paper_style_filter(db, code_to_superclass)
+        print(
+            "  Filter summary -- "
+            f"before: {filter_stats['total_before']}, "
+            f"after: {filter_stats['total_after']}, "
+            f"removed: {filter_stats['removed_total']}"
+        )
+        print(
+            "  Removed by rule -- "
+            f"conflicting_norm: {filter_stats['removed_conflicting_norm']}, "
+            f"no_classification: {filter_stats['removed_no_classification']}, "
+            "zero_likelihood_statements_removed: "
+            f"{filter_stats['removed_zero_likelihood_statements']}"
+        )
+
     # Step 5: Split using the strat_fold column
     train_df = db[db.strat_fold.isin(range(1, 9))]  # Folds 1-8
     val_df = db[db.strat_fold == 9]                   # Fold 9
@@ -336,4 +447,6 @@ def load_dataset():
         "y_val": val_df.binary_label.values,
         "y_test": test_df.binary_label.values,
         "metadata": db,
+        "paper_style_filter": bool(paper_style_filter),
+        "filter_stats": filter_stats,
     }
